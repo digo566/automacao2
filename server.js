@@ -2,6 +2,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const express = require('express');
 const cors = require('cors');
 const qrcode = require('qrcode-terminal');
+const fs = require('fs'); // Importa o módulo File System para ler o arquivo HTML
 
 const app = express();
 // O Render define a porta que deve ser usada em process.env.PORT
@@ -58,13 +59,11 @@ function initializeWhatsApp() {
     client.on('disconnected', (reason) => {
         console.log('❌ WhatsApp Cliente Desconectado:', reason);
         isReady = false;
-        // Tentativa de reconexão automática ou manual
-        // initializeWhatsApp(); 
     });
     
     // Mensagem recebida (apenas para logging/debug - remova em produção)
     client.on('message', msg => {
-        console.log(`Mensagem recebida de ${msg.from}: ${msg.body}`);
+        // console.log(`Mensagem recebida de ${msg.from}: ${msg.body}`);
     });
 
     client.initialize().catch(err => {
@@ -79,10 +78,21 @@ initializeWhatsApp();
 // ROTAS DA API
 // ---------------------------------------------------
 
-// Rota de Teste Simples (Rota raiz)
+// Rota de Teste Simples (Rota raiz) - AGORA SERVE O PAINEL HTML
 app.get('/', (req, res) => {
-    // Essa rota serve para o Render verificar se o serviço está rodando
-    res.status(200).json({ status: 'Servidor Express Rodando', client_status: isReady ? 'Conectado' : 'Desconectado', api_base: '/api' });
+    try {
+        const htmlPath = 'painel_whatsapp.html';
+        const htmlContent = fs.readFileSync(htmlPath, 'utf8');
+        // Define o cabeçalho como HTML e envia o conteúdo do arquivo
+        res.status(200).type('html').send(htmlContent);
+    } catch (error) {
+        console.error('Erro ao servir painel_whatsapp.html:', error);
+        // Retorna uma mensagem de erro JSON se o arquivo HTML não for encontrado
+        res.status(500).json({ 
+            error: 'Erro interno ao carregar a interface. O servidor está rodando, mas não encontrou o arquivo painel_whatsapp.html.',
+            details: error.message
+        });
+    }
 });
 
 // Rota de Status (Usada pelo painel HTML)
@@ -184,5 +194,4 @@ app.post('/api/reconnect', async (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`🚀 Servidor rodando na porta ${PORT}`);
-    // Se o Render acessar a URL raiz, ele verá a mensagem de status da rota '/'
 });
