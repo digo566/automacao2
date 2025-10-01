@@ -4,9 +4,8 @@ const cors = require('cors');
 const qrcode = require('qrcode-terminal');
 
 const app = express();
-// ALTERAÇÃO CRÍTICA: Usa a variável de ambiente PORT (fornecida pelo Render/Railway) 
-// ou 3001 como fallback para testar localmente.
-const PORT = process.env.PORT || 3001; 
+// O Render define a porta que deve ser usada em process.env.PORT
+const PORT = process.env.PORT || 3000; 
 
 app.use(cors());
 app.use(express.json());
@@ -17,12 +16,21 @@ let qrCodeData = '';
 
 // Inicializa o cliente WhatsApp
 function initializeWhatsApp() {
+    console.log('Iniciando o cliente WhatsApp...');
+    
+    // Se um cliente anterior existir, destrói-o antes de criar um novo
+    if (client) {
+        client.destroy().catch(e => console.error("Erro ao destruir cliente anterior:", e));
+        client = null; // Limpa a referência
+        isReady = false;
+        qrCodeData = '';
+    }
+
     client = new Client({
         authStrategy: new LocalAuth(),
         puppeteer: {
-            // Recomenda-se manter headless: true para um ambiente de servidor
+            // Configurações recomendadas para ambientes Linux (Render)
             headless: true, 
-            // Argumentos necessários para rodar o Puppeteer em ambientes Linux (Render/Railway)
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         }
     });
@@ -46,74 +54,87 @@ function initializeWhatsApp() {
         qrCodeData = ''; // Limpa o QR code ao conectar
     });
 
-    // Cliente desconectado (pode ser útil para reconexão)
+    // Estado da conexão mudou (ex: desconectado)
     client.on('disconnected', (reason) => {
         console.log('❌ WhatsApp Cliente Desconectado:', reason);
         isReady = false;
-        // Tenta reiniciar após desconexão
-        setTimeout(initializeWhatsApp, 5000); 
+        // Tentativa de reconexão automática ou manual
+        // initializeWhatsApp(); 
+    });
+    
+    // Mensagem recebida (apenas para logging/debug - remova em produção)
+    client.on('message', msg => {
+        console.log(`Mensagem recebida de ${msg.from}: ${msg.body}`);
     });
 
-    client.on('auth_failure', (msg) => {
-        // Dispara se a sessão não puder ser restaurada (e.g., telefone desconectado)
-        console.error('Falha na Autenticação:', msg);
-        isReady = false;
+    client.initialize().catch(err => {
+        console.error("Erro na inicialização do WhatsApp:", err);
     });
-
-    client.initialize();
 }
 
+// Inicia o cliente na inicialização do servidor
 initializeWhatsApp();
-
 
 // ---------------------------------------------------
 // ROTAS DA API
 // ---------------------------------------------------
 
-// 1. Rota de Status
-app.get('/api/status', (req, res) => {
-    // Retorna o status de conexão e o QR Code (se estiver pendente)
-    res.json({ connected: isReady, qrCode: qrCodeData !== '' });
+// Rota de Teste Simples (Rota raiz)
+app.get('/', (req, res) => {
+    // Essa rota serve para o Render verificar se o serviço está rodando
+    res.status(200).json({ status: 'Servidor Express Rodando', client_status: isReady ? 'Conectado' : 'Desconectado', api_base: '/api' });
 });
 
-// 2. Rota para Enviar Mensagem
+// Rota de Status (Usada pelo painel HTML)
+app.get('/api/status', (req, res) => {
+    res.json({ 
+        connected: isReady, 
+        qrCode: qrCodeData // Envia o QR code (string) se estiver disponível
+    });
+});
+
+// Enviar mensagem
 app.post('/api/send-message', async (req, res) => {
-    if (!isReady) {
-        return res.status(400).json({ error: 'WhatsApp não está conectado. Escaneie o QR Code primeiro.' });
-    }
-
     const { number, message } = req.body;
-    // O wweb.js requer o id completo (ex: 5511999998888@c.us)
-    const chatId = number; 
 
-    if (!chatId || !message) {
-        return res.status(400).json({ error: 'Número/ID e mensagem são obrigatórios.' });
+    if (!isReady) {
+        return res.status(503).json({ error: 'WhatsApp não está conectado. Por favor, escaneie o QR Code.' });
     }
+
+    if (!number || !message) {
+        return res.status(400).json({ error: 'Número e mensagem são obrigatórios.' });
+    }
+
+    // O WhatsApp-web.js espera o ID completo (ex: 5511999998888@c.us)
+    const chatId = number.includes('@') ? number : `${number}@c.us`; 
 
     try {
-        const result = await client.sendMessage(chatId, message);
-        res.json({ success: true, id: result.id._serialized });
+        await client.sendMessage(chatId, message);
+        res.json({ success: true, message: 'Mensagem enviada com sucesso' });
     } catch (error) {
         console.error('Erro ao enviar mensagem:', error);
-        res.status(500).json({ error: 'Erro ao enviar mensagem', details: error.message });
+        res.status(500).json({ error: 'Falha ao enviar mensagem', details: error.message });
     }
 });
 
-// 3. Listar contatos
+// Listar contatos (apenas o necessário)
 app.get('/api/contacts', async (req, res) => {
     try {
         if (!isReady) {
             return res.status(400).json({ error: 'WhatsApp não está conectado' });
         }
 
-        const chats = await client.getChats();
-        const contacts = chats.filter(chat => !chat.isGroup);
+        const contacts = await client.getContacts();
+        // Filtra e mapeia para retornar apenas dados úteis
+        const simpleContacts = contacts
+            .filter(c => c.isMyContact || c.isUser) // Inclui usuários e contatos salvos
+            .map(c => ({
+                id: c.id._serialized,
+                name: c.name || c.pushname || c.id.user, // Tenta nome salvo, depois nome de push, depois número
+                number: c.number
+            }));
         
-        res.json(contacts.map(c => ({
-            id: c.id._serialized,
-            name: c.name || c.id.user,
-            number: c.id.user
-        })));
+        res.json(simpleContacts);
     } catch (error) {
         console.error('Erro ao listar contatos:', error);
         res.status(500).json({ error: 'Erro ao listar contatos' });
@@ -143,20 +164,25 @@ app.get('/api/groups', async (req, res) => {
 // Reconectar
 app.post('/api/reconnect', async (req, res) => {
     try {
+        console.log('Comando de reconexão recebido. Destruindo sessão atual...');
         if (client) {
             // Destrói a sessão atual para forçar uma nova inicialização (e QR Code, se necessário)
             await client.destroy(); 
             // Espera um momento antes de reinicializar para garantir a limpeza
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
-        initializeWhatsApp();
+        initializeWhatsApp(); // Inicializa uma nova sessão
         res.json({ success: true, message: 'Reconectando o WhatsApp. Verifique o console para o QR Code.' });
     } catch (error) {
         res.status(500).json({ error: 'Erro ao reconectar', details: error.message });
     }
 });
 
-// Inicia o servidor Express
+// ---------------------------------------------------
+// INICIALIZAÇÃO DO EXPRESS
+// ---------------------------------------------------
+
 app.listen(PORT, () => {
     console.log(`🚀 Servidor rodando na porta ${PORT}`);
+    // Se o Render acessar a URL raiz, ele verá a mensagem de status da rota '/'
 });
