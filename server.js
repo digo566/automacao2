@@ -1,197 +1,164 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
 const express = require('express');
-const cors = require('cors');
-const qrcode = require('qrcode-terminal');
-const fs = require('fs'); // Importa o módulo File System para ler o arquivo HTML
+const qrcode = require('qrcode');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+
+// O Puppeteer requer essas flags para rodar em ambientes como Render/Hostinger VPS
+const client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+        args: [
+            '--no-sandbox', 
+            '--disable-setuid-sandbox', 
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process', // Necessário em alguns ambientes como Render
+            '--disable-gpu'
+        ],
+    }
+});
 
 const app = express();
-// O Render define a porta que deve ser usada em process.env.PORT
-const PORT = process.env.PORT || 3000; 
+const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+// Variável para armazenar o QR Code em formato Base64
+let qrCodeBase64 = null;
+let clientConnected = false;
+
 app.use(express.json());
 
-let client;
-let isReady = false;
-let qrCodeData = '';
+// Permite que o frontend (o HTML) em um domínio diferente acesse esta API
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    next();
+});
 
-// Inicializa o cliente WhatsApp
-function initializeWhatsApp() {
-    console.log('Iniciando o cliente WhatsApp...');
-    
-    // Se um cliente anterior existir, destrói-o antes de criar um novo
-    if (client) {
-        client.destroy().catch(e => console.error("Erro ao destruir cliente anterior:", e));
-        client = null; // Limpa a referência
-        isReady = false;
-        qrCodeData = '';
-    }
+// --- Lógica do WhatsApp Client ---
 
-    client = new Client({
-        authStrategy: new LocalAuth(),
-        puppeteer: {
-            // Configurações recomendadas para ambientes Linux (Render)
-            headless: true, 
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+// Evento: Recebe o QR Code (o armazena como Base64)
+client.on('qr', (qr) => {
+    console.log('QR CODE RECEBIDO. Escaneie no console do servidor ou veja na interface web.');
+    // Converte o QR string para um formato de imagem Base64
+    qrcode.toDataURL(qr, (err, url) => {
+        if (err) {
+            console.error('Erro ao gerar QR Code Base64:', err);
+            qrCodeBase64 = null;
+        } else {
+            // Guarda apenas a parte Base64 do URL de dados
+            qrCodeBase64 = url.split(',')[1]; 
         }
     });
-
-    // ---------------------------------------------------
-    // EVENTOS DO WHATSAPP CLIENT
-    // ---------------------------------------------------
-
-    // Gera QR Code
-    client.on('qr', (qr) => {
-        console.log('QR Code recebido, escaneie com seu WhatsApp:');
-        qrcode.generate(qr, { small: true });
-        qrCodeData = qr; // Armazena o QR code para ser acessível via API
-        isReady = false; // Garante que o status seja falso enquanto aguarda conexão
-    });
-
-    // Cliente pronto
-    client.on('ready', () => {
-        console.log('✅ WhatsApp conectado com sucesso!');
-        isReady = true;
-        qrCodeData = ''; // Limpa o QR code ao conectar
-    });
-
-    // Estado da conexão mudou (ex: desconectado)
-    client.on('disconnected', (reason) => {
-        console.log('❌ WhatsApp Cliente Desconectado:', reason);
-        isReady = false;
-    });
-    
-    // Mensagem recebida (apenas para logging/debug - remova em produção)
-    client.on('message', msg => {
-        // console.log(`Mensagem recebida de ${msg.from}: ${msg.body}`);
-    });
-
-    client.initialize().catch(err => {
-        console.error("Erro na inicialização do WhatsApp:", err);
-    });
-}
-
-// Inicia o cliente na inicialização do servidor
-initializeWhatsApp();
-
-// ---------------------------------------------------
-// ROTAS DA API
-// ---------------------------------------------------
-
-// Rota de Teste Simples (Rota raiz) - AGORA SERVE O PAINEL HTML
-app.get('/', (req, res) => {
-    try {
-        const htmlPath = 'painel_whatsapp.html';
-        const htmlContent = fs.readFileSync(htmlPath, 'utf8');
-        // Define o cabeçalho como HTML e envia o conteúdo do arquivo
-        res.status(200).type('html').send(htmlContent);
-    } catch (error) {
-        console.error('Erro ao servir painel_whatsapp.html:', error);
-        // Retorna uma mensagem de erro JSON se o arquivo HTML não for encontrado
-        res.status(500).json({ 
-            error: 'Erro interno ao carregar a interface. O servidor está rodando, mas não encontrou o arquivo painel_whatsapp.html.',
-            details: error.message
-        });
-    }
 });
 
-// Rota de Status (Usada pelo painel HTML)
+// Evento: Cliente pronto (Conectado)
+client.on('ready', () => {
+    console.log('CLIENTE PRONTO E CONECTADO!');
+    clientConnected = true;
+    qrCodeBase64 = null; // Limpa o QR Code quando a conexão é estabelecida
+});
+
+// Evento: Falha na autenticação (pode ser necessário um novo QR)
+client.on('auth_failure', (msg) => {
+    console.error('FALHA NA AUTENTICAÇÃO:', msg);
+    clientConnected = false;
+});
+
+// Evento: Cliente desconectado
+client.on('disconnected', (reason) => {
+    console.log('Cliente desconectado', reason);
+    clientConnected = false;
+    // O cliente tentará reconectar, o evento 'qr' será disparado se necessário
+});
+
+// Inicialização
+client.initialize().catch(err => {
+    console.error('Erro durante a inicialização do cliente:', err);
+});
+
+// --- API Endpoints ---
+
+// 1. Status e QR Code
 app.get('/api/status', (req, res) => {
-    res.json({ 
-        connected: isReady, 
-        qrCode: qrCodeData // Envia o QR code (string) se estiver disponível
+    res.json({
+        connected: clientConnected,
+        // Envia o Base64 do QR Code, se disponível
+        qrCode: qrCodeBase64 
     });
 });
 
-// Enviar mensagem
+// 2. Enviar Mensagem (Para demonstração via painel)
 app.post('/api/send-message', async (req, res) => {
     const { number, message } = req.body;
-
-    if (!isReady) {
-        return res.status(503).json({ error: 'WhatsApp não está conectado. Por favor, escaneie o QR Code.' });
+    
+    if (!clientConnected) {
+        return res.status(400).json({ success: false, error: 'O bot não está conectado ao WhatsApp.' });
     }
-
-    if (!number || !message) {
-        return res.status(400).json({ error: 'Número e mensagem são obrigatórios.' });
-    }
-
-    // O WhatsApp-web.js espera o ID completo (ex: 5511999998888@c.us)
-    const chatId = number.includes('@') ? number : `${number}@c.us`; 
 
     try {
-        await client.sendMessage(chatId, message);
-        res.json({ success: true, message: 'Mensagem enviada com sucesso' });
+        // Envia a mensagem (o número deve incluir o @c.us ou @g.us)
+        await client.sendMessage(number, message);
+        res.json({ success: true, message: `Mensagem enviada para ${number}` });
     } catch (error) {
         console.error('Erro ao enviar mensagem:', error);
-        res.status(500).json({ error: 'Falha ao enviar mensagem', details: error.message });
+        res.status(500).json({ success: false, error: 'Falha ao enviar mensagem.', details: error.message });
     }
 });
 
-// Listar contatos (apenas o necessário)
-app.get('/api/contacts', async (req, res) => {
-    try {
-        if (!isReady) {
-            return res.status(400).json({ error: 'WhatsApp não está conectado' });
-        }
-
-        const contacts = await client.getContacts();
-        // Filtra e mapeia para retornar apenas dados úteis
-        const simpleContacts = contacts
-            .filter(c => c.isMyContact || c.isUser) // Inclui usuários e contatos salvos
-            .map(c => ({
-                id: c.id._serialized,
-                name: c.name || c.pushname || c.id.user, // Tenta nome salvo, depois nome de push, depois número
-                number: c.number
-            }));
-        
-        res.json(simpleContacts);
-    } catch (error) {
-        console.error('Erro ao listar contatos:', error);
-        res.status(500).json({ error: 'Erro ao listar contatos' });
-    }
-});
-
-// Listar grupos
-app.get('/api/groups', async (req, res) => {
-    try {
-        if (!isReady) {
-            return res.status(400).json({ error: 'WhatsApp não está conectado' });
-        }
-
-        const chats = await client.getChats();
-        const groups = chats.filter(chat => chat.isGroup);
-        
-        res.json(groups.map(g => ({
-            id: g.id._serialized,
-            name: g.name
-        })));
-    } catch (error) {
-        console.error('Erro ao listar grupos:', error);
-        res.status(500).json({ error: 'Erro ao listar grupos' });
-    }
-});
-
-// Reconectar
+// 3. Reconectar (Limpa a sessão atual, forçando o login ou novo QR Code)
 app.post('/api/reconnect', async (req, res) => {
     try {
-        console.log('Comando de reconexão recebido. Destruindo sessão atual...');
-        if (client) {
-            // Destrói a sessão atual para forçar uma nova inicialização (e QR Code, se necessário)
-            await client.destroy(); 
-            // Espera um momento antes de reinicializar para garantir a limpeza
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-        initializeWhatsApp(); // Inicializa uma nova sessão
-        res.json({ success: true, message: 'Reconectando o WhatsApp. Verifique o console para o QR Code.' });
+        // Isso forçará um logout e um novo ciclo de login (potencialmente um novo QR Code)
+        await client.logout(); 
+        clientConnected = false;
+        qrCodeBase64 = null;
+        res.json({ success: true, message: 'Tentativa de logout e reconexão iniciada.' });
     } catch (error) {
-        res.status(500).json({ error: 'Erro ao reconectar', details: error.message });
+        console.error('Erro ao tentar reconectar/logout:', error);
+        res.status(500).json({ success: false, error: 'Falha na tentativa de reconexão.' });
     }
 });
 
-// ---------------------------------------------------
-// INICIALIZAÇÃO DO EXPRESS
-// ---------------------------------------------------
+// 4. Listar Contatos (Simplificado)
+app.get('/api/contacts', async (req, res) => {
+    if (!clientConnected) {
+        return res.status(400).json({ success: false, error: 'O bot não está conectado ao WhatsApp.' });
+    }
+    try {
+        const chats = await client.getChats();
+        const contacts = chats
+            .filter(chat => !chat.isGroup)
+            .map(chat => ({ 
+                id: chat.id._serialized, 
+                name: chat.name || chat.id.user, 
+                number: chat.id.user 
+            }));
+        res.json(contacts);
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao buscar contatos.' });
+    }
+});
+
+// 5. Listar Grupos
+app.get('/api/groups', async (req, res) => {
+    if (!clientConnected) {
+        return res.status(400).json({ success: false, error: 'O bot não está conectado ao WhatsApp.' });
+    }
+    try {
+        const chats = await client.getChats();
+        const groups = chats
+            .filter(chat => chat.isGroup)
+            .map(chat => ({ 
+                id: chat.id._serialized, 
+                name: chat.name 
+            }));
+        res.json(groups);
+    } catch (error) {
+        res.status(500).json({ error: 'Erro ao buscar grupos.' });
+    }
+});
 
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor rodando na porta ${PORT}`);
+    console.log(`Servidor Node.js rodando na porta ${PORT}`);
 });
