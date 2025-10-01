@@ -79,6 +79,11 @@ client.initialize().catch(err => {
 
 // --- API Endpoints ---
 
+// 0. NOVO ENDPOINT: Rota Raiz (Resolvendo o "Cannot GET /")
+app.get('/', (req, res) => {
+    res.status(200).json({ status: 'OK', message: 'Servidor Bot do WhatsApp está online e rodando. Use a rota /api/status para o status do bot.' });
+});
+
 // 1. Status e QR Code
 app.get('/api/status', (req, res) => {
     res.json({
