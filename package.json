@@ -1,18 +1,23 @@
 {
   "name": "whatsapp-server",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Backend para WhatsApp Bot usando whatsapp-web.js e Express.",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
-  "keywords": [],
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "nodejs",
+    "express"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^5.1.0",
-    "qrcode-terminal": "^0.12.0",
+    "qrcode": "^1.5.3",
     "whatsapp-web.js": "^1.34.1"
   }
 }
