@@ -1,18 +1,11 @@
 const express = require('express');
 const qrcode = require('qrcode');
-const path = require('path'); 
+const cors = require('cors'); // NOVIDADE: Importação do pacote CORS para melhor compatibilidade
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 
-// --- Configuração da Sessão Persistente ---
-// Define o caminho para salvar os dados de autenticação. 
-// O '/data' deve ser mapeado como um Volume Persistente no seu provedor Cloud (ex: Render).
-const SESSION_PATH = path.join(process.cwd(), '/data/.wwebjs_auth');
-// --- Fim da Configuração da Sessão ---
-
-
+// O Puppeteer requer essas flags para rodar em ambientes como Render/Hostinger VPS
 const client = new Client({
-    // Usa LocalAuth com o caminho persistente
-    authStrategy: new LocalAuth({ dataPath: SESSION_PATH }), 
+    authStrategy: new LocalAuth(),
     puppeteer: {
         args: [
             '--no-sandbox', 
@@ -21,7 +14,7 @@ const client = new Client({
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--single-process', 
+            '--single-process', // Necessário em alguns ambientes como Render
             '--disable-gpu'
         ],
     }
@@ -34,85 +27,118 @@ const PORT = process.env.PORT || 3001;
 let qrCodeBase64 = null;
 let clientConnected = false;
 
-app.use(express.json());
+// 1. Configuração do CORS (Cross-Origin Resource Sharing)
+// Usamos o pacote 'cors' para permitir acesso de qualquer origem ('*'), 
+// essencial para o teste do HTML local contra o servidor na Render.
+app.use(cors());
 
-// Permite que o frontend (o HTML) em um domínio diferente acesse esta API
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    next();
-});
+app.use(express.json());
 
 // --- Lógica do WhatsApp Client ---
 
-// Evento: Recebe o QR Code (agora o armazenamos como Base64)
 client.on('qr', (qr) => {
-    console.log('QR CODE RECEBIDO. Escaneie na interface web.');
+    // Quando o QR Code é gerado, o convertemos para Base64 para envio ao Frontend
     qrcode.toDataURL(qr, (err, url) => {
         if (err) {
-            console.error('Erro ao gerar QR Code Base64:', err);
+            console.error('Erro ao gerar QR Code:', err);
             qrCodeBase64 = null;
         } else {
-            // Guarda apenas a parte Base64 do URL de dados
-            qrCodeBase64 = url.split(',')[1]; 
+            qrCodeBase64 = url.split(',')[1]; // Captura apenas a string Base64
         }
     });
+    console.log('QR CODE RECEBIDO. Escaneie na interface web.');
 });
 
-// Evento: Cliente pronto (Conectado)
 client.on('ready', () => {
-    console.log('CLIENTE PRONTO E CONECTADO!');
+    console.log('CLIENTE CONECTADO E PRONTO!');
     clientConnected = true;
-    qrCodeBase64 = null; // Limpa o QR Code quando a conexão é estabelecida
+    qrCodeBase64 = null; // Limpa o QR Code quando conectado
 });
 
-// Evento: Cliente desconectado
-client.on('disconnected', (reason) => {
-    console.log('Cliente desconectado', reason);
+client.on('authenticated', () => {
+    console.log('CLIENTE AUTENTICADO!');
+});
+
+client.on('auth_failure', (msg) => {
+    // Fired if session restore was unsuccessful
+    console.error('FALHA NA AUTENTICAÇÃO', msg);
     clientConnected = false;
 });
 
-// Inicialização
-client.initialize().catch(err => {
-    console.error('Erro durante a inicialização do cliente:', err);
+client.on('disconnected', (reason) => {
+    console.log('CLIENTE DESCONECTADO', reason);
+    clientConnected = false;
+    // Tenta inicializar novamente se desconectado
+    client.initialize();
 });
 
-// --- API Endpoints ---
+// Implementação básica de resposta (opcional, apenas para testar a funcionalidade do bot)
+client.on('message_create', msg => {
+    // Ignora mensagens enviadas pelo próprio bot
+    if (msg.fromMe) {
+        return;
+    }
 
-// 1. Status e QR Code
+    if (msg.body === '!ping') {
+        msg.reply('pong');
+    }
+});
+
+// Inicia o cliente
+client.initialize().catch(err => {
+    console.error('Erro na inicialização do cliente:', err);
+});
+
+// --- Rotas da API ---
+
+// 1. Rota de Status (para o Frontend)
 app.get('/api/status', (req, res) => {
-    res.json({
+    res.json({ 
         connected: clientConnected,
-        qrCode: qrCodeBase64 
+        qrCode: clientConnected ? null : qrCodeBase64 // Envia o QR code apenas se não estiver conectado
     });
 });
 
-// 2. Enviar Mensagem 
+// 2. Rota para Enviar Mensagem
 app.post('/api/send-message', async (req, res) => {
-    const { number, message } = req.body;
-    
     if (!clientConnected) {
         return res.status(400).json({ success: false, error: 'O bot não está conectado ao WhatsApp.' });
     }
 
+    const { number, message } = req.body;
+    
+    // A API do whatsapp-web.js requer o número no formato serializado
+    // Ex: 5511999998888@c.us
+    const chatId = number.endsWith('@c.us') || number.endsWith('@g.us') ? number : `${number}@c.us`;
+
+    if (!chatId || !message) {
+        return res.status(400).json({ success: false, error: 'Número e/ou mensagem inválidos.' });
+    }
+
     try {
-        await client.sendMessage(number, message);
-        res.json({ success: true, message: `Mensagem enviada para ${number}` });
+        await client.sendMessage(chatId, message);
+        res.json({ success: true, message: 'Mensagem enviada com sucesso!' });
     } catch (error) {
-        console.error('Erro ao enviar mensagem:', error);
+        console.error('Erro ao enviar mensagem:', error.message);
         res.status(500).json({ success: false, error: 'Falha ao enviar mensagem.', details: error.message });
     }
 });
 
-// 3. Reconectar (Força o cliente a tentar um novo login, mas mantém a sessão salva)
+// 3. Rota para Reconectar/Reinicializar (Logout)
 app.post('/api/reconnect', async (req, res) => {
     try {
-        await client.logout(); 
-        clientConnected = false;
-        qrCodeBase64 = null;
-        res.json({ success: true, message: 'Tentativa de logout e reconexão iniciada.' });
+        if (clientConnected) {
+            await client.logout();
+            console.log('CLIENTE DESCONECTADO (Logout forçado).');
+        }
+        
+        // Re-inicializar o cliente para tentar obter um novo QR Code ou sessão.
+        // O handler client.on('disconnected') já tenta inicializar, mas fazemos aqui para garantir o fluxo.
+        client.initialize();
+
+        res.json({ success: true, message: 'Comando de reconexão/logout enviado. Aguarde o novo status.' });
     } catch (error) {
-        console.error('Erro ao tentar reconectar/logout:', error);
+        console.error('Erro em /api/reconnect (logout):', error);
         res.status(500).json({ success: false, error: 'Falha na tentativa de reconexão.' });
     }
 });
@@ -148,7 +174,8 @@ app.get('/api/groups', async (req, res) => {
             .filter(chat => chat.isGroup)
             .map(chat => ({ 
                 id: chat.id._serialized, 
-                name: chat.name 
+                name: chat.name || 'Grupo Sem Nome',
+                participantsCount: chat.participants ? chat.participants.length : 'N/A'
             }));
         res.json(groups);
     } catch (error) {
@@ -156,7 +183,7 @@ app.get('/api/groups', async (req, res) => {
     }
 });
 
+// Inicia o servidor
 app.listen(PORT, () => {
-    console.log(`Servidor Node.js rodando na porta ${PORT}`);
+    console.log(`Servidor rodando na porta ${PORT}`);
 });
-
