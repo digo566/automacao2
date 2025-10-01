@@ -3,303 +3,331 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel de Automação WhatsApp</title>
-    <!-- Carrega Tailwind CSS -->
+    <title>Painel de Controle WhatsApp Bot</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f7f9fb;
+            background-color: #f7fafc; 
         }
-        /* Custom scrollbar for chat list */
-        .chat-list::-webkit-scrollbar {
-            width: 6px;
+        .container {
+            max-width: 95%;
+            padding: 1rem;
         }
-        .chat-list::-webkit-scrollbar-thumb {
-            background-color: #cbd5e1;
-            border-radius: 3px;
+        .header {
+            background-color: #128C7E; 
+            color: white;
+            padding: 1rem;
+            border-radius: 0.75rem 0.75rem 0 0;
         }
-        .chat-list::-webkit-scrollbar-track {
-            background: #f1f1f1;
+        .shadow-lg-custom {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        /* Centraliza e estiliza o container do QR */
+        #qrCodeDisplay {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            min-height: 200px; /* Garante espaço */
+        }
+        #qrCodeDisplay img {
+            width: 250px;
+            height: 250px;
+            border: 5px solid white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+            border-radius: 0.5rem;
         }
     </style>
 </head>
-<body class="min-h-screen p-4 md:p-8">
-
-    <div class="max-w-4xl mx-auto">
-        <header class="mb-8">
-            <h1 class="text-3xl font-bold text-gray-800 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 mr-3 text-green-500" viewBox="0 0 24 24" fill="currentColor"><path d="M12.001 2c-5.507 0-9.999 4.493-9.999 10.001 0 1.764.484 3.444 1.408 4.909l-1.076 3.948 4.072-1.056c1.396.793 2.984 1.258 4.629 1.258 5.507 0 10.001-4.494 10.001-10.001s-4.494-10.001-10.001-10.001zm5.176 13.567c-.287.797-.899 1.135-1.558 1.407-.584.244-1.127.424-2.858.375-.688-.019-1.94-.035-3.32-.97-2.072-1.39-3.447-3.69-3.461-3.71-.164-.225-.972-1.298-.972-2.437s.545-1.745.74-.961c.196.786.376.965.584 1.218.209.255.44.488.636.696.195.207.394.46.618.708.224.249.534.582.883.945.438.46 1.054 1.144 1.879 1.543.901.436 1.708.57 2.399.57.69 0 1.018-.266 1.226-.52.207-.255.761-.925.761-1.734s-.972-1.298-1.378-1.777c-.407-.478-.853-.872-.796-1.171.056-.3.264-.478.472-.696.207-.21.438-.344.634-.522.196-.178.455-.42.678-.42.224 0 .394.103.558.281.163.179.972 2.389 1.167 3.01.196.621.254 1.343.195 1.543-.058.2-.472.437-.679.646zm-5.176-1.566c.204 0 .408 0 .612 0s.408 0 .612 0l0 0z"/></svg>
-                Painel de Automação
-            </h1>
-            <p class="text-gray-500">Gerencie sua conexão e envie mensagens através da sua API local.</p>
+<body class="min-h-screen flex items-start justify-center p-4">
+    <div class="container w-full lg:w-3/4 xl:w-2/3 bg-white rounded-xl shadow-lg-custom mt-4">
+        
+        <header class="header flex justify-between items-center">
+            <h1 class="text-2xl font-bold">🤖 Painel de Automação WhatsApp</h1>
+            <button id="reconnectButton" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded-lg transition duration-150">
+                Reconectar
+            </button>
         </header>
 
-        <!-- Seção de Status e Reconexão -->
-        <section class="bg-white p-6 rounded-lg shadow-xl mb-8">
-            <h2 class="text-xl font-semibold text-gray-700 mb-4">Status da Conexão</h2>
-            <div class="flex items-center space-x-4">
-                <span id="status-indicator" class="w-4 h-4 rounded-full bg-yellow-400"></span>
-                <span id="status-message" class="text-gray-600 font-medium">Verificando...</span>
-            </div>
-            <button onclick="reconnectClient()" id="reconnect-btn" class="mt-4 px-4 py-2 bg-red-500 text-white font-semibold rounded-md hover:bg-red-600 transition duration-150 disabled:bg-red-300">
-                Reconectar / Forçar Novo QR
-            </button>
-        </section>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <!-- Seção de Envio de Mensagens -->
-            <section class="bg-white p-6 rounded-lg shadow-xl">
-                <h2 class="text-xl font-semibold text-gray-700 mb-4">Enviar Mensagem Manualmente</h2>
-                <form id="send-message-form" onsubmit="sendMessage(event)">
-                    <div class="mb-4">
-                        <label for="chat-id" class="block text-sm font-medium text-gray-700 mb-1">ID do Chat / Grupo (ou Número)</label>
-                        <input type="text" id="chat-id" name="number" required 
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500" 
-                               placeholder="Ex: 5511999998888@c.us ou 1234567890@g.us">
-                        <p class="text-xs text-gray-500 mt-1">Use a lista ao lado para preencher automaticamente.</p>
+        <main class="p-6 space-y-6">
+            
+            <!-- Seção de Status e QR Code -->
+            <section class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <h2 class="text-xl font-semibold text-gray-700 mb-3">Status do Bot</h2>
+                <div class="flex items-center space-x-3 mb-4">
+                    <div id="statusIndicator" class="w-4 h-4 rounded-full bg-red-500 animate-pulse"></div>
+                    <p id="statusText" class="text-lg font-medium text-red-700">Desconectado</p>
+                </div>
+                
+                <div id="qrCodeContainer" class="hidden bg-white p-4 rounded-lg">
+                    <p class="text-center text-red-600 font-semibold mb-3">Escaneie o QR Code abaixo com seu celular:</p>
+                    <div id="qrCodeDisplay" class="flex justify-center items-center">
+                        <!-- O QR Code Base64 será injetado aqui -->
                     </div>
-                    <div class="mb-4">
-                        <label for="message-body" class="block text-sm font-medium text-gray-700 mb-1">Mensagem</label>
-                        <textarea id="message-body" name="message" rows="4" required 
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500" 
-                                    placeholder="Digite a mensagem que deseja enviar..."></textarea>
-                    </div>
-                    <button type="submit" id="send-btn" disabled
-                            class="w-full px-4 py-2 bg-green-500 text-white font-bold rounded-md hover:bg-green-600 transition duration-150 disabled:bg-gray-400 disabled:cursor-not-allowed">
-                        <span id="send-btn-text">Enviar Mensagem</span>
-                    </button>
-                    <p id="send-message-feedback" class="mt-3 text-sm font-medium"></p>
-                </form>
-            </section>
-
-            <!-- Seção de Lista de Chats -->
-            <section class="bg-white p-6 rounded-lg shadow-xl">
-                <h2 class="text-xl font-semibold text-gray-700 mb-4 flex justify-between items-center">
-                    Contatos & Grupos
-                    <button onclick="loadChats()" class="text-sm text-blue-500 hover:text-blue-700 font-medium">
-                        Atualizar Lista
-                    </button>
-                </h2>
-                <div id="chats-list" class="chat-list h-80 overflow-y-auto border border-gray-200 rounded-md p-2">
-                    <p class="text-center text-gray-500">Clique em "Atualizar Lista" para carregar seus chats.</p>
                 </div>
             </section>
-        </div>
+            
+            <!-- Formulário de Envio de Mensagem -->
+            <section class="bg-white p-4 rounded-lg border border-gray-200 shadow">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">Enviar Mensagem Manual</h2>
+                <form id="sendMessageForm" class="space-y-4">
+                    <div>
+                        <label for="chatId" class="block text-sm font-medium text-gray-700">ID do Chat / Grupo</label>
+                        <input type="text" id="chatId" placeholder="Ex: 5511999998888@c.us ou ID_DO_GRUPO@g.us" required
+                               class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-green-500 focus:border-green-500">
+                    </div>
+                    <div>
+                        <label for="messageContent" class="block text-sm font-medium text-gray-700">Conteúdo da Mensagem</label>
+                        <textarea id="messageContent" rows="3" placeholder="Digite sua mensagem aqui..." required
+                                  class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-green-500 focus:border-green-500"></textarea>
+                    </div>
+                    <button type="submit" id="sendButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition duration-150 disabled:bg-gray-400">
+                        Enviar Mensagem
+                    </button>
+                </form>
+            </section>
+            
+            <!-- Seção de Listagem de Contatos/Grupos -->
+            <section class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <h2 class="text-xl font-semibold text-gray-700 mb-3">Contatos e Grupos</h2>
+                <div class="flex space-x-2 mb-3">
+                    <button id="updateListButton" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-150 disabled:bg-gray-400">
+                        Atualizar Lista
+                    </button>
+                    <select id="listType" class="bg-white border border-gray-300 rounded-lg p-2">
+                        <option value="contacts">Contatos</option>
+                        <option value="groups">Grupos</option>
+                    </select>
+                </div>
 
-        <!-- Seção de QR Code (Modal Simples) -->
-        <div id="qr-modal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4 z-50">
-            <div class="bg-white p-6 rounded-lg shadow-2xl max-w-sm w-full text-center">
-                <h3 class="text-xl font-bold mb-4 text-red-600">⚠ Conexão Perdida</h3>
-                <p class="text-gray-700 mb-4">Escaneie o QR Code no console do seu servidor Node.js ou clique em **"Reconectar"** para gerar um novo.</p>
-                <button onclick="document.getElementById('qr-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600">
-                    Fechar
-                </button>
-            </div>
-        </div>
+                <div id="listContainer" class="h-64 overflow-y-auto border border-gray-300 bg-white rounded-md p-2 space-y-1 text-sm">
+                    <p class="text-center text-gray-500 mt-4">Clique em "Atualizar Lista" para carregar.</p>
+                </div>
+            </section>
+            
+            <!-- Mensagens de Feedback -->
+            <div id="feedbackMessage" class="mt-4 p-3 rounded-lg text-center font-medium hidden" role="alert"></div>
+
+        </main>
     </div>
 
     <script>
-        // CORREÇÃO CRÍTICA: Altera o endereço da API para o URL do Render fornecido.
-        const API_URL = 'https://automacao2-8mi9.onrender.com/api';
-        
-        const statusIndicator = document.getElementById('status-indicator');
-        const statusMessage = document.getElementById('status-message');
-        const sendBtn = document.getElementById('send-btn');
-        const sendBtnText = document.getElementById('send-btn-text');
-        const sendFeedback = document.getElementById('send-message-feedback');
-        const chatsList = document.getElementById('chats-list');
-        const qrModal = document.getElementById('qr-modal');
-        const reconnectBtn = document.getElementById('reconnect-btn');
-        let isConnected = false;
+        // =========================================================================
+        // 🚨🚨🚨 PONTO DE MUDANÇA CRÍTICO 🚨🚨🚨
+        // Você DEVE trocar 'http://localhost:3001/api' pelo endereço PÚBLICO do seu servidor Node.js.
+        // Se usar Render/Railway: 'https://seubot.onrender.com/api'
+        // Se usar VPS: 'http://<IP_DO_SEU_VPS>:3001/api'
+        // =========================================================================
+        const API_BASE_URL = 'http://localhost:3001/api'; 
+        // =========================================================================
 
-        // Função utilitária para chamar a API
-        async function apiFetch(endpoint, method = 'GET', data = null) {
-            const options = {
-                method: method,
-                headers: { 'Content-Type': 'application/json' },
-            };
-            if (data) {
-                options.body = JSON.stringify(data);
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
+        const qrCodeContainer = document.getElementById('qrCodeContainer');
+        const qrCodeDisplay = document.getElementById('qrCodeDisplay');
+        const sendMessageForm = document.getElementById('sendMessageForm');
+        const feedbackMessage = document.getElementById('feedbackMessage');
+        const sendButton = document.getElementById('sendButton');
+        const reconnectButton = document.getElementById('reconnectButton');
+        const updateListButton = document.getElementById('updateListButton');
+        const listContainer = document.getElementById('listContainer');
+        const listType = document.getElementById('listType');
+        const chatIdInput = document.getElementById('chatId');
+
+        function showFeedback(message, isError = false) {
+            feedbackMessage.textContent = message;
+            feedbackMessage.classList.remove('hidden', 'bg-red-100', 'text-red-800', 'bg-green-100', 'text-green-800');
+            if (isError) {
+                feedbackMessage.classList.add('bg-red-100', 'text-red-800');
+            } else {
+                feedbackMessage.classList.add('bg-green-100', 'text-green-800');
             }
-            try {
-                const response = await fetch(`${API_URL}${endpoint}`, options);
-                const result = await response.json();
-                if (!response.ok) {
-                    throw new Error(result.error || 'Erro desconhecido da API');
-                }
-                return result;
-            } catch (error) {
-                console.error(`Erro ao acessar ${endpoint}:`, error);
-                throw error;
-            }
+            // Oculta a mensagem após 5 segundos
+            setTimeout(() => feedbackMessage.classList.add('hidden'), 5000);
         }
 
-        // 1. Verifica o Status do Bot
-        async function checkStatus() {
-            try {
-                const status = await apiFetch('/status');
-                isConnected = status.connected;
-
-                if (isConnected) {
-                    statusIndicator.classList.remove('bg-yellow-400', 'bg-red-500');
-                    statusIndicator.classList.add('bg-green-500');
-                    statusMessage.textContent = status.statusMessage || 'Conectado. API pronta para uso.';
-                    sendBtn.disabled = false;
-                    reconnectBtn.disabled = false;
-                    qrModal.classList.add('hidden');
-                } else {
-                    statusIndicator.classList.remove('bg-yellow-400', 'bg-green-500');
-                    statusIndicator.classList.add('bg-red-500');
-                    statusMessage.textContent = status.statusMessage || 'Desconectado. Sessão expirada ou não inicializada.';
-                    sendBtn.disabled = true;
-                    reconnectBtn.disabled = false;
-                    // Se estiver aguardando QR Code, pode mostrar o modal (embora o QR code só esteja no console)
-                    if (status.qrCode) {
-                         qrModal.classList.remove('hidden');
-                    }
-                }
-            } catch (error) {
+        function updateStatus(connected, qrCodeBase64) {
+            if (connected) {
+                // Status de CONECTADO
+                statusIndicator.classList.remove('bg-red-500', 'animate-pulse');
+                statusIndicator.classList.add('bg-green-500');
+                statusText.textContent = 'Conectado';
+                statusText.classList.remove('text-red-700');
+                statusText.classList.add('text-green-700');
+                qrCodeContainer.classList.add('hidden');
+                sendButton.disabled = false;
+                updateListButton.disabled = false;
+            } else {
+                // Status de DESCONECTADO ou AGUARDANDO QR
                 statusIndicator.classList.remove('bg-green-500');
-                statusIndicator.classList.add('bg-red-500');
-                statusMessage.textContent = `Erro de Conexão: O servidor Node.js está offline.`;
-                sendBtn.disabled = true;
-                reconnectBtn.disabled = true;
+                statusIndicator.classList.add('bg-red-500', 'animate-pulse');
+                
+                sendButton.disabled = true;
+                updateListButton.disabled = true;
+
+                if (qrCodeBase64) {
+                    statusText.textContent = 'Aguardando QR Scan (Escaneie abaixo)';
+                    statusText.classList.add('text-red-700');
+                    qrCodeContainer.classList.remove('hidden');
+                    
+                    // Renderiza o QR Code
+                    qrCodeDisplay.innerHTML = `<img src="data:image/png;base64,${qrCodeBase64}" alt="QR Code para WhatsApp Web">`;
+                } else {
+                    statusText.textContent = 'Desconectado/Inicializando';
+                    statusText.classList.add('text-red-700');
+                    qrCodeContainer.classList.add('hidden');
+                    qrCodeDisplay.innerHTML = ''; // Limpa o QR Code
+                }
             }
         }
 
-        // 2. Envia Mensagem
-        async function sendMessage(event) {
-            event.preventDefault();
-            
-            sendFeedback.textContent = '';
-            sendFeedback.classList.remove('text-green-600', 'text-red-600', 'text-blue-600'); // Limpa cores
-            sendBtn.disabled = true;
-            sendBtnText.textContent = 'Enviando...';
+        // Função principal para verificar o status
+        async function checkStatus() {
+            // Verifica se a URL base ainda é o padrão local, que causará o erro "Failed to fetch"
+            if (API_BASE_URL.includes('localhost')) {
+                console.error("ERRO CRÍTICO: A variável API_BASE_URL ainda está configurada para 'localhost'. Você DEVE trocá-la pelo endereço público do seu servidor Cloud (Render/Railway/VPS)!");
+            }
 
-            const number = document.getElementById('chat-id').value.trim();
-            const message = document.getElementById('message-body').value.trim();
+            try {
+                // Tenta se conectar ao servidor da API
+                const response = await fetch(`${API_BASE_URL}/status`);
+                if (!response.ok) {
+                    throw new Error(`Erro HTTP: ${response.status}`);
+                }
+                const data = await response.json();
+                // data.qrCode agora contém a string Base64 se disponível
+                updateStatus(data.connected, data.qrCode); 
+            } catch (error) {
+                console.error('Erro ao verificar o status:', error);
+                // Exibe erro se a conexão com a API falhar (provavelmente a URL está errada)
+                statusText.textContent = 'Erro de Conexão: O servidor Node.js está offline ou a API_BASE_URL está errada.';
+                statusText.classList.add('text-red-700');
+                statusIndicator.classList.remove('bg-green-500');
+                statusIndicator.classList.add('bg-red-500', 'animate-pulse');
+                sendButton.disabled = true;
+                updateListButton.disabled = true;
+            }
+        }
+
+        // Enviar Mensagem
+        sendMessageForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const number = document.getElementById('chatId').value.trim();
+            const message = document.getElementById('messageContent').value.trim();
 
             if (!number || !message) {
-                sendFeedback.textContent = 'Erro: Por favor, preencha o ID do Chat/Número e a mensagem.';
-                sendFeedback.classList.add('text-red-600');
-                sendBtn.disabled = false;
-                sendBtnText.textContent = 'Enviar Mensagem';
+                showFeedback('Preencha o ID do Chat e a Mensagem.', true);
                 return;
             }
 
-            try {
-                const result = await apiFetch('/send-message', 'POST', { number, message });
-                
-                sendFeedback.textContent = `Sucesso! Mensagem enviada às ${new Date().toLocaleTimeString('pt-BR')}.`;
-                sendFeedback.classList.add('text-green-600');
-                
-                // Limpa apenas a mensagem, mantendo o ID do chat
-                document.getElementById('message-body').value = ''; 
+            sendButton.textContent = 'Enviando...';
+            sendButton.disabled = true;
 
-            } catch (error) {
-                sendFeedback.textContent = `Falha ao enviar: ${error.message}`;
-                sendFeedback.classList.add('text-red-600');
+            try {
+                const response = await fetch(`${API_BASE_URL}/send-message`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ number, message })
+                });
+
+                const result = await response.json();
                 
+                if (response.ok && result.success) {
+                    showFeedback('Mensagem enviada com sucesso!');
+                    document.getElementById('messageContent').value = ''; 
+                } else {
+                    throw new Error(result.details || result.error || 'Falha desconhecida no envio.');
+                }
+            } catch (error) {
+                console.error('Erro de Envio:', error);
+                showFeedback(`Erro ao enviar: ${error.message}`, true);
             } finally {
-                sendBtn.disabled = isConnected ? false : true; // Reabilita se estiver conectado
-                sendBtnText.textContent = 'Enviar Mensagem';
+                sendButton.textContent = 'Enviar Mensagem';
+                // Verifica o status de conexão para reativar o botão
+                sendButton.disabled = !statusIndicator.classList.contains('bg-green-500');
             }
-        }
-
-        // 3. Carrega Contatos e Grupos
-        async function loadChats() {
-            if (!isConnected) {
-                chatsList.innerHTML = `<p class="text-center text-red-500 p-2">Não é possível carregar chats: WhatsApp está desconectado.</p>`;
-                return;
-            }
-
-            chatsList.innerHTML = '<p class="text-center text-blue-500 p-2">Carregando chats...</p>';
-
-            try {
-                const [contactsResult, groupsResult] = await Promise.all([
-                    apiFetch('/contacts'),
-                    apiFetch('/groups')
-                ]);
-
-                chatsList.innerHTML = '';
-                
-                // 3.1 Função para renderizar item da lista
-                const renderItem = (name, id, isGroup = false) => {
-                    const listItem = document.createElement('div');
-                    listItem.className = `p-2 cursor-pointer border-b last:border-b-0 hover:bg-gray-100 transition duration-100 ${isGroup ? 'font-semibold' : ''}`;
-                    listItem.innerHTML = `
-                        <span class="text-gray-800">${isGroup ? '👥' : '👤'} ${name}</span><br>
-                        <span class="text-xs text-gray-500 truncate" title="${id}">${id}</span>
-                    `;
-                    listItem.onclick = () => {
-                        document.getElementById('chat-id').value = id;
-                        document.getElementById('chat-id').focus();
-                        sendFeedback.textContent = `ID preenchido com: ${name}`;
-                        sendFeedback.classList.remove('text-red-600', 'text-green-600');
-                        sendFeedback.classList.add('text-blue-600');
-                    };
-                    return listItem;
-                };
-
-                // 3.2 Renderiza Grupos
-                if (groupsResult.length > 0) {
-                    const groupTitle = document.createElement('p');
-                    groupTitle.className = 'text-sm font-bold text-indigo-600 py-1 px-2 mt-2 sticky top-0 bg-white border-b';
-                    groupTitle.textContent = 'Grupos';
-                    chatsList.appendChild(groupTitle);
-                    groupsResult.forEach(g => chatsList.appendChild(renderItem(g.name, g.id, true)));
-                }
-
-                // 3.3 Renderiza Contatos
-                if (contactsResult.length > 0) {
-                    const contactTitle = document.createElement('p');
-                    contactTitle.className = 'text-sm font-bold text-indigo-600 py-1 px-2 mt-2 sticky top-0 bg-white border-b';
-                    contactTitle.textContent = 'Contatos Individuais';
-                    chatsList.appendChild(contactTitle);
-                    contactsResult.forEach(c => chatsList.appendChild(renderItem(c.name || c.number, c.id, false)));
-                }
-
-                if (groupsResult.length === 0 && contactsResult.length === 0) {
-                    chatsList.innerHTML = `<p class="text-center text-gray-500 p-2">Nenhum chat encontrado.</p>`;
-                }
-
-            } catch (error) {
-                chatsList.innerHTML = `<p class="text-center text-red-500 p-2">Erro ao carregar chats: ${error.message}</p>`;
-            }
-        }
-
-        // 4. Reconecta o Cliente WhatsApp
-        async function reconnectClient() {
-            reconnectBtn.disabled = true;
-            reconnectBtn.textContent = 'Reconectando...';
-            sendFeedback.textContent = ''; // Limpa o feedback anterior
-
-            try {
-                await apiFetch('/reconnect', 'POST');
-                statusMessage.textContent = 'Comando de reconexão enviado. Verifique o console do Render para o QR Code.';
-                statusIndicator.classList.remove('bg-green-500', 'bg-red-500');
-                statusIndicator.classList.add('bg-yellow-400');
-                qrModal.classList.remove('hidden'); // Exibe o modal para instruir o usuário a olhar o console
-            } catch (error) {
-                // CORREÇÃO: Substitui alert() por mensagem na área de feedback
-                sendFeedback.textContent = `Erro ao solicitar reconexão: ${error.message}`;
-                sendFeedback.classList.remove('text-green-600', 'text-blue-600');
-                sendFeedback.classList.add('text-red-600');
-            } finally {
-                reconnectBtn.textContent = 'Reconectar / Forçar Novo QR';
-                // Deixa o botão reabilitar após o checkStatus
-                setTimeout(checkStatus, 5000); 
-            }
-        }
-
-        // Inicialização
-        document.addEventListener('DOMContentLoaded', () => {
-            // Verifica o status a cada 5 segundos
-            setInterval(checkStatus, 5000); 
-            checkStatus(); // Verifica o status imediatamente
         });
+
+        // Reconectar
+        reconnectButton.addEventListener('click', async () => {
+            if (!confirm('Tem certeza que deseja forçar a reconexão? Isso pode exigir um novo QR Code!')) {
+                return;
+            }
+            reconnectButton.disabled = true;
+            try {
+                const response = await fetch(`${API_BASE_URL}/reconnect`, { method: 'POST' });
+                const result = await response.json();
+                if (response.ok && result.success) {
+                    showFeedback('Comando de reconexão enviado. Aguarde...');
+                    checkStatus(); 
+                } else {
+                    throw new Error(result.error || 'Falha na reconexão.');
+                }
+            } catch (error) {
+                console.error('Erro ao reconectar:', error);
+                showFeedback(`Erro ao tentar reconectar: ${error.message}`, true);
+            } finally {
+                reconnectButton.disabled = false;
+            }
+        });
+
+
+        // Listar Contatos/Grupos
+        updateListButton.addEventListener('click', async () => {
+            const type = listType.value;
+            const endpoint = type === 'contacts' ? 'contacts' : 'groups';
+            listContainer.innerHTML = '<p class="text-center text-gray-500 mt-4">Carregando...</p>';
+            updateListButton.disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/${endpoint}`);
+                if (!response.ok) {
+                    throw new Error('Erro ao buscar lista.');
+                }
+                const data = await response.json();
+                
+                listContainer.innerHTML = ''; 
+                
+                if (data.length === 0) {
+                    listContainer.innerHTML = `<p class="text-center text-gray-500 mt-4">Nenhum ${type === 'contacts' ? 'contato' : 'grupo'} encontrado.</p>`;
+                    return;
+                }
+                
+                data.forEach(item => {
+                    const listItem = document.createElement('div');
+                    listItem.className = 'p-2 rounded-md hover:bg-gray-100 cursor-pointer border-b border-gray-200';
+                    
+                    const displayId = item.id;
+                    const displayName = item.name || (item.number ? `(${item.number})` : '[ID Desconhecido]');
+
+                    listItem.innerHTML = `
+                        <p class="font-semibold text-gray-800 truncate">${displayName}</p>
+                        <p class="text-xs text-gray-500 truncate">ID: ${displayId}</p>
+                    `;
+                    
+                    listItem.addEventListener('click', () => {
+                        chatIdInput.value = displayId;
+                        showFeedback(`ID ${displayName} copiado para o campo de envio!`, false);
+                    });
+                    
+                    listContainer.appendChild(listItem);
+                });
+
+            } catch (error) {
+                console.error('Erro ao listar:', error);
+                listContainer.innerHTML = `<p class="text-center text-red-500 mt-4">Falha ao carregar a lista: ${error.message}</p>`;
+            } finally {
+                updateListButton.disabled = false;
+            }
+        });
+
+
+        // Inicialização: Verifica o status a cada 5 segundos
+        checkStatus(); 
+        setInterval(checkStatus, 5000);
     </script>
 </body>
 </html>
