@@ -4,6 +4,10 @@ const cors = require('cors');
 const qrcode = require('qrcode-terminal');
 
 const app = express();
+// ALTERAÇÃO CRÍTICA: Usa a variável de ambiente PORT (fornecida pelo Render/Railway) 
+// ou 3001 como fallback para testar localmente.
+const PORT = process.env.PORT || 3001; 
+
 app.use(cors());
 app.use(express.json());
 
@@ -18,6 +22,7 @@ function initializeWhatsApp() {
         puppeteer: {
             // Recomenda-se manter headless: true para um ambiente de servidor
             headless: true, 
+            // Argumentos necessários para rodar o Puppeteer em ambientes Linux (Render/Railway)
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         }
     });
@@ -41,137 +46,73 @@ function initializeWhatsApp() {
         qrCodeData = ''; // Limpa o QR code ao conectar
     });
 
-    // Desconectado
+    // Cliente desconectado (pode ser útil para reconexão)
     client.on('disconnected', (reason) => {
-        console.log('❌ WhatsApp desconectado. Motivo:', reason);
+        console.log('❌ WhatsApp Cliente Desconectado:', reason);
         isReady = false;
-        // Tente inicializar novamente após um tempo (opcional)
-        // setTimeout(() => initializeWhatsApp(), 5000); 
+        // Tenta reiniciar após desconexão
+        setTimeout(initializeWhatsApp, 5000); 
     });
 
-    // Manipulador de Mensagens (Onde você coloca suas automações!)
-    client.on('message', async message => {
-        // Ignora mensagens enviadas pelo próprio bot (COMENTADO PARA FACILITAR O TESTE LOCAL)
-        // Se você for usar em produção, é recomendável descomentar esta linha.
-        // if (message.fromMe) return; 
-
-        const command = message.body.toLowerCase().trim();
-        const chat = await message.getChat();
-
-        // Lógica de Comandos usando switch/case
-        switch (command) {
-            case '!olá':
-                message.reply('Olá! Sou seu bot de automação. Digite `!ajuda` para ver os comandos disponíveis.');
-                break;
-            
-            case '!ajuda':
-                const helpMessage = `🤖 *Comandos de Automação*\n\n` +
-                                    `*!olá*: Mensagem de boas-vindas.\n` +
-                                    `*!ajuda*: Mostra esta lista de comandos.\n` +
-                                    `*!status-bot*: Verifica se o bot está conectado.\n` +
-                                    `*!meu-id*: Mostra o ID do seu chat (útil para a API).\n` +
-                                    `*!grupo-nome*: Se estiver em um grupo, mostra o nome do grupo.`;
-                message.reply(helpMessage);
-                break;
-                
-            case '!status-bot':
-                message.reply(isReady ? '✅ Estou conectado e pronto!' : '⚠️ Estou desconectado. Verifique o console.');
-                break;
-
-            case '!meu-id':
-                // message.from é o ID do chat/contato
-                message.reply(`Seu ID de Chat é:\n\`${message.from}\``);
-                break;
-            
-            case '!grupo-nome':
-                if (chat.isGroup) {
-                    message.reply(`O nome deste grupo é: *${chat.name}*`);
-                } else {
-                    message.reply('Este comando só funciona em grupos!');
-                }
-                break;
-
-            // Se a mensagem não for um comando, você pode adicionar uma resposta padrão
-            // default:
-            //     if (command.startsWith('!')) { // Se for um comando desconhecido
-            //         message.reply('Comando desconhecido. Digite `!ajuda` para ver a lista de comandos.');
-            //     }
-        }
+    client.on('auth_failure', (msg) => {
+        // Dispara se a sessão não puder ser restaurada (e.g., telefone desconectado)
+        console.error('Falha na Autenticação:', msg);
+        isReady = false;
     });
-    
-    // Inicia a tentativa de conexão
+
     client.initialize();
 }
 
+initializeWhatsApp();
+
+
 // ---------------------------------------------------
-// ENDPOINTS DA API EXPRESS
+// ROTAS DA API
 // ---------------------------------------------------
 
-// Rota de Boas-vindas (FIX para o "Cannot GET /" )
-app.get('/', (req, res) => {
-    res.send(`
-        <h1>Servidor de Automação WhatsApp Rodando! 🚀</h1>
-        <p>Acesse o endpoint <code>/api/status</code> para verificar a conexão.</p>
-        <p>Use clientes HTTP (Postman/Insomnia/cURL) para interagir com os outros endpoints:</p>
-        <ul>
-            <li><strong>GET /api/status</strong>: Verifica o status da conexão.</li>
-            <li><strong>POST /api/send-message</strong>: Envia mensagens.</li>
-            <li><strong>GET /api/contacts</strong>: Lista seus contatos.</li>
-            <li><strong>POST /api/reconnect</strong>: Destrói e reinicializa a sessão.</li>
-        </ul>
-    `);
-});
-
-// Status da conexão
+// 1. Rota de Status
 app.get('/api/status', (req, res) => {
-    res.json({ 
-        connected: isReady,
-        qrCode: !isReady && qrCodeData ? qrCodeData : null, // Retorna o QR code apenas se não estiver pronto
-        statusMessage: isReady ? 'Conectado' : (qrCodeData ? 'Aguardando QR Scan' : 'Inicializando...')
-    });
+    // Retorna o status de conexão e o QR Code (se estiver pendente)
+    res.json({ connected: isReady, qrCode: qrCodeData !== '' });
 });
 
-// Enviar mensagem
+// 2. Rota para Enviar Mensagem
 app.post('/api/send-message', async (req, res) => {
-    try {
-        if (!isReady) {
-            return res.status(400).json({ error: 'WhatsApp não está conectado' });
-        }
+    if (!isReady) {
+        return res.status(400).json({ error: 'WhatsApp não está conectado. Escaneie o QR Code primeiro.' });
+    }
 
-        const { number, message } = req.body;
-        
-        // Formata o número (adiciona @c.us para contatos individuais)
-        const chatId = number.includes('@g.us') ? number : `${number}@c.us`;
-        
+    const { number, message } = req.body;
+    // O wweb.js requer o id completo (ex: 5511999998888@c.us)
+    const chatId = number; 
+
+    if (!chatId || !message) {
+        return res.status(400).json({ error: 'Número/ID e mensagem são obrigatórios.' });
+    }
+
+    try {
         const result = await client.sendMessage(chatId, message);
-        
-        res.json({ 
-            success: true, 
-            message: 'Mensagem enviada com sucesso',
-            id: result.id._serialized, // Retorna o ID da mensagem enviada
-            timestamp: new Date().toISOString()
-        });
+        res.json({ success: true, id: result.id._serialized });
     } catch (error) {
         console.error('Erro ao enviar mensagem:', error);
-        res.status(500).json({ 
-            error: 'Erro ao enviar mensagem', 
-            details: error.message 
-        });
+        res.status(500).json({ error: 'Erro ao enviar mensagem', details: error.message });
     }
 });
 
-// Listar contatos
+// 3. Listar contatos
 app.get('/api/contacts', async (req, res) => {
     try {
         if (!isReady) {
             return res.status(400).json({ error: 'WhatsApp não está conectado' });
         }
 
-        const contacts = await client.getContacts();
+        const chats = await client.getChats();
+        const contacts = chats.filter(chat => !chat.isGroup);
+        
         res.json(contacts.map(c => ({
             id: c.id._serialized,
-            name: c.name || c.pushname || 'Sem Nome',
-            number: c.number
+            name: c.name || c.id.user,
+            number: c.id.user
         })));
     } catch (error) {
         console.error('Erro ao listar contatos:', error);
@@ -215,11 +156,7 @@ app.post('/api/reconnect', async (req, res) => {
     }
 });
 
-// Inicia o servidor
-const PORT = process.env.PORT || 3001;
+// Inicia o servidor Express
 app.listen(PORT, () => {
     console.log(`🚀 Servidor rodando na porta ${PORT}`);
-    console.log(`📱 Acesse http://localhost:${PORT}`);
-    initializeWhatsApp();
 });
-
