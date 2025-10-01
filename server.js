@@ -1,10 +1,18 @@
 const express = require('express');
 const qrcode = require('qrcode');
+const path = require('path'); 
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 
-// O Puppeteer requer essas flags para rodar em ambientes como Render/Hostinger VPS
+// --- Configuração da Sessão Persistente ---
+// Define o caminho para salvar os dados de autenticação. 
+// O '/data' deve ser mapeado como um Volume Persistente no seu provedor Cloud (ex: Render).
+const SESSION_PATH = path.join(process.cwd(), '/data/.wwebjs_auth');
+// --- Fim da Configuração da Sessão ---
+
+
 const client = new Client({
-    authStrategy: new LocalAuth(),
+    // Usa LocalAuth com o caminho persistente
+    authStrategy: new LocalAuth({ dataPath: SESSION_PATH }), 
     puppeteer: {
         args: [
             '--no-sandbox', 
@@ -13,7 +21,7 @@ const client = new Client({
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--single-process', // Necessário em alguns ambientes como Render
+            '--single-process', 
             '--disable-gpu'
         ],
     }
@@ -37,10 +45,9 @@ app.use((req, res, next) => {
 
 // --- Lógica do WhatsApp Client ---
 
-// Evento: Recebe o QR Code (o armazena como Base64)
+// Evento: Recebe o QR Code (agora o armazenamos como Base64)
 client.on('qr', (qr) => {
-    console.log('QR CODE RECEBIDO. Escaneie no console do servidor ou veja na interface web.');
-    // Converte o QR string para um formato de imagem Base64
+    console.log('QR CODE RECEBIDO. Escaneie na interface web.');
     qrcode.toDataURL(qr, (err, url) => {
         if (err) {
             console.error('Erro ao gerar QR Code Base64:', err);
@@ -59,17 +66,10 @@ client.on('ready', () => {
     qrCodeBase64 = null; // Limpa o QR Code quando a conexão é estabelecida
 });
 
-// Evento: Falha na autenticação (pode ser necessário um novo QR)
-client.on('auth_failure', (msg) => {
-    console.error('FALHA NA AUTENTICAÇÃO:', msg);
-    clientConnected = false;
-});
-
 // Evento: Cliente desconectado
 client.on('disconnected', (reason) => {
     console.log('Cliente desconectado', reason);
     clientConnected = false;
-    // O cliente tentará reconectar, o evento 'qr' será disparado se necessário
 });
 
 // Inicialização
@@ -79,21 +79,15 @@ client.initialize().catch(err => {
 
 // --- API Endpoints ---
 
-// 0. NOVO ENDPOINT: Rota Raiz (Resolvendo o "Cannot GET /")
-app.get('/', (req, res) => {
-    res.status(200).json({ status: 'OK', message: 'Servidor Bot do WhatsApp está online e rodando. Use a rota /api/status para o status do bot.' });
-});
-
 // 1. Status e QR Code
 app.get('/api/status', (req, res) => {
     res.json({
         connected: clientConnected,
-        // Envia o Base64 do QR Code, se disponível
         qrCode: qrCodeBase64 
     });
 });
 
-// 2. Enviar Mensagem (Para demonstração via painel)
+// 2. Enviar Mensagem 
 app.post('/api/send-message', async (req, res) => {
     const { number, message } = req.body;
     
@@ -102,7 +96,6 @@ app.post('/api/send-message', async (req, res) => {
     }
 
     try {
-        // Envia a mensagem (o número deve incluir o @c.us ou @g.us)
         await client.sendMessage(number, message);
         res.json({ success: true, message: `Mensagem enviada para ${number}` });
     } catch (error) {
@@ -111,10 +104,9 @@ app.post('/api/send-message', async (req, res) => {
     }
 });
 
-// 3. Reconectar (Limpa a sessão atual, forçando o login ou novo QR Code)
+// 3. Reconectar (Força o cliente a tentar um novo login, mas mantém a sessão salva)
 app.post('/api/reconnect', async (req, res) => {
     try {
-        // Isso forçará um logout e um novo ciclo de login (potencialmente um novo QR Code)
         await client.logout(); 
         clientConnected = false;
         qrCodeBase64 = null;
@@ -167,3 +159,4 @@ app.get('/api/groups', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Servidor Node.js rodando na porta ${PORT}`);
 });
+
