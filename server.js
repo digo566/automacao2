@@ -86,9 +86,9 @@ const SESSION_PATH = path.join(process.cwd(), '/data/.wwebjs_auth');
 const client = new Client({
     authStrategy: new LocalAuth({ dataPath: SESSION_PATH }), 
     puppeteer: {
-        // --- CORREÇÃO DE ERRO CRÍTICO NA RENDER ---
-        // Usa o caminho executável fornecido pelo ambiente da Render, resolvendo o erro ENOENT.
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH, 
+        // --- SEGUNDA CORREÇÃO DE ERRO CRÍTICO NA RENDER ---
+        // Força o caminho executável para o local mais provável do Chrome em ambientes Linux.
+        executablePath: '/usr/bin/google-chrome-stable',
         args: [
             '--no-sandbox', 
             '--disable-setuid-sandbox', 
@@ -278,3 +278,4 @@ app.get('/api/groups', async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Servidor Node.js rodando na porta ${PORT}`);
 });
+
